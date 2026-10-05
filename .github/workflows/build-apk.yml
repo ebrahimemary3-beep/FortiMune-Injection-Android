@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
 
@@ -29,8 +30,14 @@ jobs:
       - name: Build release APK
         run: gradle assembleRelease --no-daemon
 
+      - name: Find generated APK
+        run: |
+          echo "Generated APK files:"
+          find app/build/outputs -type f -name "*.apk" -print
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: FortiMune-Android-v1.0.0
-          path: app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
