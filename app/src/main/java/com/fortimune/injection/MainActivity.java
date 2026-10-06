@@ -19,6 +19,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import com.onesignal.Continue;
+import com.onesignal.OneSignal;
+
 import androidx.activity.ComponentActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -28,6 +31,7 @@ public class MainActivity extends ComponentActivity {
     private static final int FILE_CHOOSER = 1001;
     private static final int CAMERA_PERMISSION = 1002;
     private boolean pendingCameraPermission;
+    private boolean notificationPermissionRequested;
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
 
@@ -93,8 +97,16 @@ public class MainActivity extends ComponentActivity {
             Toast.makeText(this, "تم بدء تنزيل ملف Excel", Toast.LENGTH_SHORT).show();
         });
 
-        if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, CAMERA_PERMISSION);
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        if (!notificationPermissionRequested) {
+            notificationPermissionRequested = true;
+            // Ask from a visible Activity. Do not redirect to Settings after a denial.
+            // The SDK keeps notification permission separate from the camera flow.
+            OneSignal.getNotifications().requestPermission(false, Continue.none());
         }
     }
 
