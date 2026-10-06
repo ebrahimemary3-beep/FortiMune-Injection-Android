@@ -67,7 +67,7 @@ jobs:
           echo "Found APK:"
           echo "$APK"
 
-          cp "$APK" release/FortiMune-Injection-v1.0.0-debug.apk
+          cp "$APK" release/FortiMune-Injection-v1.1.0-debug.apk
 
           echo "===== FINAL APK ====="
           ls -lh release/
@@ -76,6 +76,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FortiMune-Injection-v1.0.0
-          path: release/FortiMune-Injection-v1.0.0-debug.apk
+          name: FortiMune-Injection-v1.1.0
+          path: release/FortiMune-Injection-v1.1.0-debug.apk
           if-no-files-found: error
