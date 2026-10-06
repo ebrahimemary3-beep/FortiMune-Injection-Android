@@ -8,12 +8,22 @@ android {
         applicationId 'com.innoval.fortimuneinjection'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '1.1.0'
+        versionCode 3
+        versionName '1.2.0'
     }
 
+    signingConfigs {
+        release {
+            def keyPath = System.getenv('FORTIMUNE_KEYSTORE_FILE')
+            if (keyPath) storeFile file(keyPath)
+            storePassword System.getenv('FORTIMUNE_KEYSTORE_PASSWORD')
+            keyAlias System.getenv('FORTIMUNE_KEY_ALIAS')
+            keyPassword System.getenv('FORTIMUNE_KEY_PASSWORD')
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -23,6 +33,7 @@ android {
 
 
 dependencies {
+    implementation "androidx.webkit:webkit:1.12.1"
     implementation "androidx.activity:activity:1.10.1"
     implementation "androidx.core:core:1.16.0"
     implementation "com.onesignal:OneSignal:5.10.2"

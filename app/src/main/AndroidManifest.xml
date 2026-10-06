@@ -11,6 +11,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
+        <meta-data android:name="com.onesignal.NotificationServiceExtension" android:value="com.fortimune.injection.FortiMuneNotificationService" />
         <meta-data android:name="com.onesignal.NotificationAccentColor.DEFAULT" android:value="FF056DB7" />
         <activity
             android:name=".MainActivity"
