@@ -36,6 +36,9 @@ public class MainActivity extends ComponentActivity {
     private static final String START_URL = "https://ebrahimemary3-beep.github.io/FortiMune-Injection-Management/?app=android";
     private static final int FILE_CHOOSER = 1001;
     private static final int CAMERA_PERMISSION = 1002;
+    private static final int SAVE_EXCEL = 1003;
+    private final ExcelTransfer excelTransfer = new ExcelTransfer();
+    private byte[] pendingExcel;
     private boolean pendingCameraPermission;
     private boolean notificationPermissionRequested;
     private WebView webView;
@@ -63,9 +66,36 @@ public class MainActivity extends ComponentActivity {
             (view,message,origin,isMainFrame,reply) -> {
                 if(!isMainFrame || !isTrustedPage(view.getUrl())) return;
                 try {
-                    JSONObject input=new JSONObject(message.getData());
+                    String raw = message.getData();
+                    if (raw == null || raw.length() > 180000) return;
+                    JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if(action.startsWith("excel-")) {
+                        JSONObject result = new JSONObject().put("id", input.optString("id"));
+                        try {
+                            if("excel-begin".equals(action)) {
+                                if(pendingExcel != null) throw new IllegalStateException("انتظر حفظ الملف الحالي أو ألغِه.");
+                                excelTransfer.begin(input.optString("filename"), input.optInt("size", -1));
+                            } else if("excel-chunk".equals(action)) {
+                                excelTransfer.append(input.optInt("offset", -1), input.optString("data"));
+                            } else if("excel-save".equals(action)) {
+                                if(pendingExcel != null) throw new IllegalStateException("انتظر حفظ الملف الحالي.");
+                                pendingExcel = excelTransfer.bytes();
+                                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                                intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                                intent.putExtra(Intent.EXTRA_TITLE, excelTransfer.filename());
+                                try { startActivityForResult(intent, SAVE_EXCEL); }
+                                catch (ActivityNotFoundException e) { pendingExcel = null; throw new IllegalStateException("لا يوجد تطبيق لحفظ المستندات على هذا الجهاز."); }
+                                excelTransfer.clear();
+                            } else if("excel-cancel".equals(action)) {
+                                if(pendingExcel == null) excelTransfer.clear();
+                            } else throw new IllegalArgumentException("عملية حفظ غير مدعومة.");
+                            result.put("ok", true);
+                        } catch(Exception e) { result.put("error", e.getMessage() == null ? "تعذر تجهيز ملف Excel." : e.getMessage()); }
+                        reply.postMessage(result.toString());return;
+                    }
                     if("enable".equals(action)) {
                         OneSignal.getUser().getPushSubscription().optIn();
                         OneSignal.getNotifications().requestPermission(false,Continue.none());
@@ -84,6 +114,8 @@ public class MainActivity extends ComponentActivity {
                     result.put("permission",OneSignal.getNotifications().getPermission());
                     result.put("optedIn",OneSignal.getUser().getPushSubscription().getOptedIn());
                     result.put("proof",FortiMuneApplication.getProof());
+                    result.put("boundUserId",getSharedPreferences("fortimune_push63",0).getString("owner",""));
+                    result.put("excelExport",true);
                     reply.postMessage(result.toString());
                 } catch(Exception ignored) { /* No tokens or payloads in logs. */ }
             });
@@ -149,7 +181,12 @@ public class MainActivity extends ComponentActivity {
         });
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            Uri downloadUri = Uri.parse(url);
+            if (!"https".equals(downloadUri.getScheme()) || !isTrustedPage(url)) {
+                Toast.makeText(this, "استخدم زر تصدير Excel في آخر نسخة من الصفحة", Toast.LENGTH_LONG).show();
+                return;
+            }
+            DownloadManager.Request request = new DownloadManager.Request(downloadUri);
             request.setMimeType(mimeType);
             request.addRequestHeader("User-Agent", userAgent);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
@@ -183,6 +220,23 @@ public class MainActivity extends ComponentActivity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == SAVE_EXCEL) {
+            final byte[] bytes = pendingExcel; pendingExcel = null;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null || bytes == null) {
+                Toast.makeText(this, "تم إلغاء حفظ Excel", Toast.LENGTH_SHORT).show();return;
+            }
+            final Uri destination = data.getData();
+            new Thread(() -> {
+                boolean saved = false;
+                try (java.io.OutputStream stream = getContentResolver().openOutputStream(destination, "wt")) {
+                    if(stream == null) throw new java.io.IOException();
+                    stream.write(bytes);stream.flush();saved = true;
+                } catch (Exception ignored) { /* No report data in logs. */ }
+                final boolean success = saved;
+                runOnUiThread(() -> Toast.makeText(this, success ? "تم حفظ ملف Excel" : "تعذر حفظ ملف Excel. أعد المحاولة واختر مجلدًا آخر.", Toast.LENGTH_LONG).show());
+            }, "FortiMune-Excel").start();
+            return;
+        }
         if (requestCode == FILE_CHOOSER && fileCallback != null) {
             Uri[] result = (resultCode == RESULT_OK && data != null && data.getData() != null) ? new Uri[]{data.getData()} : null;
             fileCallback.onReceiveValue(result);
@@ -196,6 +250,7 @@ public class MainActivity extends ComponentActivity {
 
     @Override protected void onDestroy() {
         nativeHandler.removeCallbacksAndMessages(null);
+        excelTransfer.clear();pendingExcel = null;
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
