@@ -37,6 +37,9 @@ public class MainActivity extends ComponentActivity {
     private static final int FILE_CHOOSER = 1001;
     private static final int CAMERA_PERMISSION = 1002;
     private static final int SAVE_EXCEL = 1003;
+    private static final int SAVE_IMAGE = 1004;
+    private final ImageTransfer imageTransfer = new ImageTransfer();
+    private byte[] pendingImage;
     private final ExcelTransfer excelTransfer = new ExcelTransfer();
     private byte[] pendingExcel;
     private boolean pendingCameraPermission;
@@ -71,6 +74,43 @@ public class MainActivity extends ComponentActivity {
                     JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if(action.startsWith("image-")) {
+                        JSONObject result=new JSONObject().put("id",input.optString("id"));
+                        try {
+                            if("image-begin".equals(action)) {
+                                if(pendingImage!=null) throw new IllegalStateException("انتظر حفظ الصورة الحالية أو ألغها.");
+                                imageTransfer.begin(input.optString("filename"),input.optInt("size",-1),input.optString("mime"));
+                            } else if("image-chunk".equals(action)) {
+                                imageTransfer.append(input.optInt("offset",-1),input.optString("data"));
+                            } else if("image-save".equals(action)) {
+                                if(pendingImage!=null) throw new IllegalStateException("انتظر حفظ الصورة الحالية.");
+                                pendingImage=imageTransfer.bytes();
+                                Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                                intent.setType(imageTransfer.mime());intent.putExtra(Intent.EXTRA_TITLE,imageTransfer.filename());
+                                try {startActivityForResult(intent,SAVE_IMAGE);}
+                                catch(ActivityNotFoundException e){pendingImage=null;throw new IllegalStateException("لا يوجد تطبيق لحفظ الصور على هذا الجهاز.");}
+                                imageTransfer.clear();
+                            } else if("image-share".equals(action)) {
+                                byte[] bytes=imageTransfer.bytes();
+                                java.io.File dir=new java.io.File(getCacheDir(),"image-exports");
+                                if(!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("تعذر تجهيز المشاركة.");
+                                // Only our private image export folder; no report paths or storage permission.
+                                java.io.File[] previous=dir.listFiles();
+                                if(previous!=null) for(java.io.File f:previous) if(System.currentTimeMillis()-f.lastModified()>24L*60*60*1000) f.delete();
+                                java.io.File file=new java.io.File(dir,java.util.UUID.randomUUID().toString()+"_"+imageTransfer.filename());
+                                try(java.io.OutputStream stream=new java.io.FileOutputStream(file)){stream.write(bytes);}
+                                Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",file);
+                                Intent intent=new Intent(Intent.ACTION_SEND);intent.setType(imageTransfer.mime());
+                                intent.putExtra(Intent.EXTRA_STREAM,uri);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                intent.setClipData(android.content.ClipData.newRawUri("FortiMune image",uri));
+                                startActivity(Intent.createChooser(intent,"مشاركة صورة FortiMune"));imageTransfer.clear();
+                            } else if("image-cancel".equals(action)) {imageTransfer.clear();}
+                            else throw new IllegalArgumentException("عملية صورة غير مدعومة.");
+                            result.put("ok",true);
+                        }catch(Exception e){result.put("error",e.getMessage()==null?"تعذر تجهيز الصورة.":e.getMessage());}
+                        reply.postMessage(result.toString());return;
+                    }
                     if(action.startsWith("excel-")) {
                         JSONObject result = new JSONObject().put("id", input.optString("id"));
                         try {
@@ -116,6 +156,7 @@ public class MainActivity extends ComponentActivity {
                     result.put("proof",FortiMuneApplication.getProof());
                     result.put("boundUserId",getSharedPreferences("fortimune_push63",0).getString("owner",""));
                     result.put("excelExport",true);
+                    result.put("imageExport",true);
                     reply.postMessage(result.toString());
                 } catch(Exception ignored) { /* No tokens or payloads in logs. */ }
             });
@@ -220,6 +261,21 @@ public class MainActivity extends ComponentActivity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if(requestCode == SAVE_IMAGE) {
+            final byte[] bytes=pendingImage;pendingImage=null;
+            if(resultCode!=RESULT_OK || data==null || data.getData()==null || bytes==null){
+                Toast.makeText(this,"تم إلغاء حفظ الصورة",Toast.LENGTH_SHORT).show();return;
+            }
+            final Uri destination=data.getData();
+            new Thread(() -> {
+                boolean saved=false;
+                try(java.io.OutputStream stream=getContentResolver().openOutputStream(destination,"wt")){
+                    if(stream==null) throw new java.io.IOException();stream.write(bytes);stream.flush();saved=true;
+                }catch(Exception ignored){ saved=false; /* No image data in logs. */ }
+                final boolean success=saved;
+                runOnUiThread(() -> Toast.makeText(this,success?"تم حفظ الصورة":"تعذر حفظ الصورة. اختر مجلدًا آخر.",Toast.LENGTH_LONG).show());
+            },"FortiMune-Image").start();return;
+        }
         if (requestCode == SAVE_EXCEL) {
             final byte[] bytes = pendingExcel; pendingExcel = null;
             if (resultCode != RESULT_OK || data == null || data.getData() == null || bytes == null) {
@@ -231,7 +287,7 @@ public class MainActivity extends ComponentActivity {
                 try (java.io.OutputStream stream = getContentResolver().openOutputStream(destination, "wt")) {
                     if(stream == null) throw new java.io.IOException();
                     stream.write(bytes);stream.flush();saved = true;
-                } catch (Exception ignored) { /* No report data in logs. */ }
+                } catch (Exception ignored) { saved=false; /* No report data in logs. */ }
                 final boolean success = saved;
                 runOnUiThread(() -> Toast.makeText(this, success ? "تم حفظ ملف Excel" : "تعذر حفظ ملف Excel. أعد المحاولة واختر مجلدًا آخر.", Toast.LENGTH_LONG).show());
             }, "FortiMune-Excel").start();
@@ -251,6 +307,7 @@ public class MainActivity extends ComponentActivity {
     @Override protected void onDestroy() {
         nativeHandler.removeCallbacksAndMessages(null);
         excelTransfer.clear();pendingExcel = null;
+        imageTransfer.clear();pendingImage=null;
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
