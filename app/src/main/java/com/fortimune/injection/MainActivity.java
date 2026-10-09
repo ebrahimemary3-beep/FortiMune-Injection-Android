@@ -74,6 +74,11 @@ public class MainActivity extends ComponentActivity {
                     JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if("app-version".equals(action)) {
+                        JSONObject result=new JSONObject().put("id",input.optString("id"))
+                            .put("versionName",BuildConfig.VERSION_NAME).put("versionCode",BuildConfig.VERSION_CODE);
+                        reply.postMessage(result.toString());return;
+                    }
                     if(action.startsWith("image-")) {
                         JSONObject result=new JSONObject().put("id",input.optString("id"));
                         try {
@@ -168,7 +173,24 @@ public class MainActivity extends ComponentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
-        setContentView(webView);
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.addView(webView,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        setContentView(root);
+        if(savedInstanceState == null) {
+            android.widget.FrameLayout intro = new android.widget.FrameLayout(this);
+            intro.setBackgroundColor(android.graphics.Color.WHITE);
+            intro.setClickable(true);
+            android.widget.ImageView logo = new android.widget.ImageView(this);
+            logo.setImageResource(R.drawable.fortimune_intro);
+            logo.setContentDescription("FortiMune");
+            logo.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            int size = (int)(240 * getResources().getDisplayMetrics().density);
+            android.widget.FrameLayout.LayoutParams logoParams = new android.widget.FrameLayout.LayoutParams(size,size);
+            logoParams.gravity=android.view.Gravity.CENTER;
+            intro.addView(logo,logoParams);root.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-1));
+            nativeHandler.postDelayed(() -> intro.animate().alpha(0f).setDuration(250)
+                .withEndAction(() -> root.removeView(intro)).start(),1250);
+        }
         configureWebView();
         installNativeBridge();
         nativeHandler.post(routePush);
