@@ -168,6 +168,9 @@ public class MainActivity extends ComponentActivity {
     }
 
     private ValueCallback<Uri[]> fileCallback;
+    private Uri cameraOutput;
+    private java.io.File cameraFile;
+    private boolean capturePending;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -230,15 +233,21 @@ public class MainActivity extends ComponentActivity {
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (!isTrustedPage(webView.getUrl())) { callback.onReceiveValue(null); return true; }
+                finishFileChooser(null);
                 fileCallback = callback;
-                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                    pendingCameraPermission = true;
-                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION);
+                capturePending = params.isCaptureEnabled();
+                if (capturePending) {
+                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        pendingCameraPermission = true;
+                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION);
+                    } else launchCamera();
+                    return true;
                 }
-                Intent intent = params.createIntent();
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("image/*");intent.addCategory(Intent.CATEGORY_OPENABLE);
                 try { startActivityForResult(intent, FILE_CHOOSER); }
-                catch (ActivityNotFoundException e) { fileCallback = null; return false; }
+                catch (ActivityNotFoundException e) { finishFileChooser(null); Toast.makeText(MainActivity.this,"لا يوجد تطبيق لاختيار الصور",Toast.LENGTH_LONG).show(); }
                 return true;
             }
         });
@@ -276,7 +285,10 @@ public class MainActivity extends ComponentActivity {
         if (requestCode == CAMERA_PERMISSION && pendingCameraPermission) {
             pendingCameraPermission = false;
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "تم السماح باستخدام الكاميرا", Toast.LENGTH_SHORT).show();
+                if (capturePending && fileCallback != null) launchCamera();
+            } else {
+                finishFileChooser(null);
+                Toast.makeText(this,"لتصوير التقرير، فعّل إذن الكاميرا من إعدادات التطبيق، أو اختر صورة من المعرض.",Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -316,10 +328,38 @@ public class MainActivity extends ComponentActivity {
             return;
         }
         if (requestCode == FILE_CHOOSER && fileCallback != null) {
-            Uri[] result = (resultCode == RESULT_OK && data != null && data.getData() != null) ? new Uri[]{data.getData()} : null;
-            fileCallback.onReceiveValue(result);
-            fileCallback = null;
+            Uri[] result = null;
+            if (resultCode == RESULT_OK) {
+                if (capturePending && cameraOutput != null && cameraFile != null && cameraFile.length() > 0) result = new Uri[]{cameraOutput};
+                else if (!capturePending && data != null && data.getData() != null) result = new Uri[]{data.getData()};
+            }
+            finishFileChooser(result);
         }
+    }
+
+    private void launchCamera() {
+        try {
+            java.io.File dir = new java.io.File(getCacheDir(),"report-camera");
+            if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException();
+            java.io.File[] old = dir.listFiles();
+            if(old != null) for(java.io.File f:old) if(System.currentTimeMillis()-f.lastModified()>24L*60*60*1000) f.delete();
+            cameraFile = java.io.File.createTempFile("report-", ".jpg",dir);
+            cameraOutput = androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",cameraFile);
+            Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT,cameraOutput);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            intent.setClipData(android.content.ClipData.newRawUri("FortiMune report",cameraOutput));
+            startActivityForResult(intent,FILE_CHOOSER);
+        } catch(Exception e) {
+            finishFileChooser(null);
+            Toast.makeText(this,"تعذر فتح الكاميرا. يمكنك اختيار صورة من المعرض.",Toast.LENGTH_LONG).show();
+        }
+    }
+    private void finishFileChooser(Uri[] result) {
+        ValueCallback<Uri[]> callback = fileCallback; fileCallback = null;
+        if (result == null && cameraFile != null) cameraFile.delete();
+        if (callback != null) callback.onReceiveValue(result);
+        cameraOutput = null; cameraFile = null; capturePending = false;
     }
 
     @Override public void onBackPressed() {
@@ -328,6 +368,7 @@ public class MainActivity extends ComponentActivity {
 
     @Override protected void onDestroy() {
         nativeHandler.removeCallbacksAndMessages(null);
+        finishFileChooser(null);
         excelTransfer.clear();pendingExcel = null;
         imageTransfer.clear();pendingImage=null;
         if (webView != null) webView.destroy();

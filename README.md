@@ -1,10 +1,15 @@
-FortiMune Android 1.4.3 — versionCode 8
+FortiMune Android 1.4.5 — versionCode 10
 
-This source builds the signed APK using .github/workflows/build-apk.yml.
-The existing applicationId com.innoval.fortimuneinjection and existing signing secrets are preserved so this is an update to 1.3.0.
-The WebView loads the deployed FortiMune website; publish Website/index.html too.
-No new OneSignal keys or permissions are required for this update.
-Image saving uses Android's document chooser; image sharing uses a private, non-exported FileProvider restricted to cache/image-exports.
-PNG, JPEG and WebP are transferred in bounded ordered chunks only from the trusted main frame. Existing XLSX transfer and notification binding remain.
-No signing key, API secret, Android SDK or compiled APK is included.
-Build in GitHub Actions, then install FortiMune-Injection-v1.4.3.apk as an update using the same signing key.
+Build the signed APK with .github/workflows/build-apk.yml using existing signing secrets.
+Application ID remains com.innoval.fortimuneinjection. Keep the existing release key to install as Update.
+This folder contains source, not a built APK. Install Supabase 7.1 and publish Website 7.1 too.
+
+Report capture:
+- Explicit HTML capture opens ACTION_IMAGE_CAPTURE after runtime CAMERA permission is granted.
+- Output uses a private cache/report-camera FileProvider path, temporary URI grants and full-size JPEG.
+- Gallery selection is independent and does not request CAMERA permission.
+- Denial, camera cancellation, absent camera app and empty output complete the WebView callback safely.
+- The existing export provider, Excel/image export and notification binding are preserved.
+
+Java syntax was parsed locally. APK compilation, signature and device camera behavior must be verified
+in GitHub Actions and on the installed Android 1.4.5; an Android SDK/signing key is not available here.
