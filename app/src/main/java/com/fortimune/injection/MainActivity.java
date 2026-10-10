@@ -223,6 +223,20 @@ public class MainActivity extends ComponentActivity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
                 String host = u.getHost();
+                if ("mailto".equalsIgnoreCase(u.getScheme())) {
+                    Intent mail = new Intent(Intent.ACTION_SENDTO, u);
+                    mail.setPackage("com.microsoft.office.outlook");
+                    try { startActivity(mail); }
+                    catch (ActivityNotFoundException missingOutlook) {
+                        mail.setPackage(null);
+                        try { startActivity(Intent.createChooser(mail, "فتح رسالة البريد")); }
+                        catch (ActivityNotFoundException missingMail) {
+                            android.widget.Toast.makeText(MainActivity.this, "ثبّت Outlook أو افتح الرسالة من زر Outlook على الويب", android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    }
+                    return true;
+                }
+
                 if (isTrustedPage(u.toString())) {
                     return false;
                 }
