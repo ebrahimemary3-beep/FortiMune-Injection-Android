@@ -1,15 +1,9 @@
-FortiMune Android 1.4.10 — versionCode 15
+FortiMune Android 1.4.12 — versionCode 17
 
-Build the signed APK with .github/workflows/build-apk.yml using existing signing secrets.
-Application ID remains com.innoval.fortimuneinjection. Keep the existing release key to install as Update.
-This folder contains source, not a built APK. Install Supabase 7.6 (after 7.5) and publish Website 7.6 too.
-
-Report capture:
-- Explicit HTML capture opens ACTION_IMAGE_CAPTURE after runtime CAMERA permission is granted.
-- Output uses a private cache/report-camera FileProvider path, temporary URI grants and full-size JPEG.
-- Gallery selection is independent and does not request CAMERA permission.
-- Denial, camera cancellation, absent camera app and empty output complete the WebView callback safely.
-- The existing export provider, Excel/image export and notification binding are preserved.
-
-Java syntax was parsed locally. APK compilation, signature and device camera behavior must be verified
-in GitHub Actions and on the installed Android 1.4.10; an Android SDK/signing key is not available here.
+Install Supabase PATCH 7.7 after 7.6, then publish Website 7.7.
+Upload this Android source including .github/workflows/build-apk.yml.
+The workflow builds the release using the SAME existing signing secrets.
+This package contains source, not a prebuilt or device-tested APK.
+After building, test the APK, publish the release asset and only then set
+Website/app-update.json available=true. The website can update without an APK.
+Native report save/share and application identity are unchanged.
