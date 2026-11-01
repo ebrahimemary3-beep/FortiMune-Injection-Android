@@ -108,8 +108,8 @@ public class MainActivity extends ComponentActivity {
                                 Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",file);
                                 Intent intent=new Intent(Intent.ACTION_SEND);intent.setType(imageTransfer.mime());
                                 intent.putExtra(Intent.EXTRA_STREAM,uri);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                intent.setClipData(android.content.ClipData.newRawUri("FortiMune image",uri));
-                                startActivity(Intent.createChooser(intent,"مشاركة صورة FortiMune"));imageTransfer.clear();
+                                intent.setClipData(android.content.ClipData.newRawUri("IVAS image",uri));
+                                startActivity(Intent.createChooser(intent,"مشاركة صورة IVAS"));imageTransfer.clear();
                             } else if("image-cancel".equals(action)) {imageTransfer.clear();}
                             else throw new IllegalArgumentException("عملية صورة غير مدعومة.");
                             result.put("ok",true);
@@ -185,7 +185,7 @@ public class MainActivity extends ComponentActivity {
             intro.setClickable(true);
             android.widget.ImageView logo = new android.widget.ImageView(this);
             logo.setImageResource(R.drawable.fortimune_intro);
-            logo.setContentDescription("FortiMune");
+            logo.setContentDescription("IVAS - Innoval Vaccine Application System");
             logo.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
             int size = (int)(240 * getResources().getDisplayMetrics().density);
             android.widget.FrameLayout.LayoutParams logoParams = new android.widget.FrameLayout.LayoutParams(size,size);
@@ -276,7 +276,7 @@ public class MainActivity extends ComponentActivity {
             request.setMimeType(mimeType);
             request.addRequestHeader("User-Agent", userAgent);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "FortiMune-Injection-Report.xlsx");
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "IVAS-Injection-Report.xlsx");
             ((DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request);
             Toast.makeText(this, "تم بدء تنزيل ملف Excel", Toast.LENGTH_SHORT).show();
         });
@@ -362,7 +362,7 @@ public class MainActivity extends ComponentActivity {
             Intent intent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
             intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT,cameraOutput);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            intent.setClipData(android.content.ClipData.newRawUri("FortiMune report",cameraOutput));
+            intent.setClipData(android.content.ClipData.newRawUri("IVAS report",cameraOutput));
             startActivityForResult(intent,FILE_CHOOSER);
         } catch(Exception e) {
             finishFileChooser(null);
