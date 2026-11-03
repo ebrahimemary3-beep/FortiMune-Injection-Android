@@ -192,7 +192,7 @@ public class MainActivity extends ComponentActivity {
             logoParams.gravity=android.view.Gravity.CENTER;
             intro.addView(logo,logoParams);root.addView(intro,new android.widget.FrameLayout.LayoutParams(-1,-1));
             nativeHandler.postDelayed(() -> intro.animate().alpha(0f).setDuration(250)
-                .withEndAction(() -> root.removeView(intro)).start(),1250);
+                .withEndAction(() -> root.removeView(intro)).start(),350);
         }
         configureWebView();
         installNativeBridge();
@@ -219,6 +219,17 @@ public class MainActivity extends ComponentActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon) {
                 nativePageReady=false;
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                // First launch without network (before the offline copy exists): show a friendly retry page.
+                if (request == null || !request.isForMainFrame()) return;
+                String html = "<!doctype html><html lang='ar' dir='rtl'><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                    + "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:sans-serif;background:#f2f6fb;color:#13294b;text-align:center}"
+                    + "main{padding:24px;max-width:340px}h1{font-size:20px}p{color:#5f7387;line-height:1.7}"
+                    + "a{display:inline-block;margin-top:12px;background:#26478a;color:#fff;padding:12px 22px;border-radius:14px;text-decoration:none;font-weight:700}</style></head>"
+                    + "<body><main><h1>مفيش اتصال بالإنترنت</h1><p>افتح IVAS مرة واحدة وإنت متصل بالنت عشان يتخزن على الموبايل، وبعدها يشتغل من غير نت.</p>"
+                    + "<a href='" + START_URL + "'>إعادة المحاولة</a></main></body></html>";
+                view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
