@@ -3,11 +3,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish this APK as the public download (GitHub Release)'
+        type: boolean
+        default: true
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -44,6 +49,19 @@ jobs:
           name: FortiMune-Injection-v1.6.0
           path: release/*.apk
           if-no-files-found: error
+      - name: Publish public download (GitHub Release)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -nE "s/.*versionName '([^']+)'.*/\1/p" app/build.gradle | head -1)
+          TAG="v$VERSION"
+          NOTES="IVAS $VERSION — Innoval Vaccine Application System. Download FortiMune-Injection.apk and install."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/FortiMune-Injection.apk release/FortiMune-Injection-v$VERSION.apk --clobber
+          else
+            gh release create "$TAG" release/FortiMune-Injection.apk release/FortiMune-Injection-v$VERSION.apk --title "IVAS $VERSION" --notes "$NOTES" --latest
+          fi
       - name: Remove private signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/fortimune.jks"
