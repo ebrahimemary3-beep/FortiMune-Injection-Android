@@ -203,6 +203,8 @@ public class MainActivity extends ComponentActivity {
     private void configureWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
+        // Respect the phone's text size, but cap it so IVAS screens stay readable and uncluttered.
+        s.setTextZoom((int) Math.min(110, Math.max(85, getResources().getConfiguration().fontScale * 100)));
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(true);
