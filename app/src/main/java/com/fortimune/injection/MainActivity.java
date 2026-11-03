@@ -33,7 +33,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 public class MainActivity extends ComponentActivity {
-    private static final String START_URL = "https://ebrahimemary3-beep.github.io/FortiMune-Injection-Management/?app=android";
+    private static final String START_URL = "https://ivas-86h.pages.dev/?app=android";
     private static final int FILE_CHOOSER = 1001;
     private static final int CAMERA_PERMISSION = 1002;
     private static final int SAVE_EXCEL = 1003;
@@ -59,13 +59,13 @@ public class MainActivity extends ComponentActivity {
     private boolean isTrustedPage(String url) {
         if(url==null) return false;
         Uri u=Uri.parse(url);
-        return "https".equals(u.getScheme()) && "ebrahimemary3-beep.github.io".equals(u.getHost())
-            && u.getPort()==-1 && u.getPath()!=null && u.getPath().startsWith("/FortiMune-Injection-Management/");
+        return "https".equals(u.getScheme()) && "ivas-86h.pages.dev".equals(u.getHost())
+            && u.getPort()==-1 && u.getPath()!=null && u.getPath().startsWith("/");
     }
     private void installNativeBridge() {
         if(!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
         WebViewCompat.addWebMessageListener(webView,"FortiMuneNative",
-            Collections.singleton("https://ebrahimemary3-beep.github.io"),
+            Collections.singleton("https://ivas-86h.pages.dev"),
             (view,message,origin,isMainFrame,reply) -> {
                 if(!isMainFrame || !isTrustedPage(view.getUrl())) return;
                 try {
