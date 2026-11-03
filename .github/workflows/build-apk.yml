@@ -42,11 +42,14 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p release
-          cp app/build/outputs/apk/release/app-release.apk release/FortiMune-Injection-v1.6.0.apk
+          VERSION=$(sed -nE "s/.*versionName '([^']+)'.*/\1/p" app/build.gradle | head -1)
+          cp app/build/outputs/apk/release/app-release.apk "release/IVAS-App-v$VERSION.apk"
+          cp app/build/outputs/apk/release/app-release.apk release/IVAS-App.apk
+          # Old file name kept so links already shared keep working.
           cp app/build/outputs/apk/release/app-release.apk release/FortiMune-Injection.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: FortiMune-Injection-v1.6.0
+          name: IVAS-App
           path: release/*.apk
           if-no-files-found: error
       - name: Publish public download (GitHub Release)
@@ -56,11 +59,11 @@ jobs:
         run: |
           VERSION=$(sed -nE "s/.*versionName '([^']+)'.*/\1/p" app/build.gradle | head -1)
           TAG="v$VERSION"
-          NOTES="IVAS $VERSION — Innoval Vaccine Application System. Download FortiMune-Injection.apk and install."
+          NOTES="IVAS $VERSION — Innoval Vaccine Application System. Download IVAS-App.apk and install."
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/FortiMune-Injection.apk release/FortiMune-Injection-v$VERSION.apk --clobber
+            gh release upload "$TAG" release/IVAS-App.apk "release/IVAS-App-v$VERSION.apk" release/FortiMune-Injection.apk --clobber
           else
-            gh release create "$TAG" release/FortiMune-Injection.apk release/FortiMune-Injection-v$VERSION.apk --title "IVAS $VERSION" --notes "$NOTES" --latest
+            gh release create "$TAG" release/IVAS-App.apk "release/IVAS-App-v$VERSION.apk" release/FortiMune-Injection.apk --title "IVAS $VERSION" --notes "$NOTES" --latest
           fi
       - name: Remove private signing key
         if: always()
