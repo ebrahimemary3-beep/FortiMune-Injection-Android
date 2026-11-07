@@ -38,6 +38,7 @@ public class MainActivity extends ComponentActivity {
     private static final int CAMERA_PERMISSION = 1002;
     private static final int SAVE_EXCEL = 1003;
     private static final int SAVE_IMAGE = 1004;
+    private static final int PICK_CONTACT = 1005;
     private final ImageTransfer imageTransfer = new ImageTransfer();
     private byte[] pendingImage;
     private final ExcelTransfer excelTransfer = new ExcelTransfer();
@@ -74,6 +75,14 @@ public class MainActivity extends ComponentActivity {
                     JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if("pick-contact".equals(action)) {
+                        JSONObject result=new JSONObject().put("id",input.optString("id"));
+                        try {
+                            Intent pick=new Intent(Intent.ACTION_PICK,android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+                            startActivityForResult(pick,PICK_CONTACT);result.put("started",true);
+                        } catch(ActivityNotFoundException e) { result.put("error","لا يوجد تطبيق جهات اتصال على هذا الجهاز."); }
+                        reply.postMessage(result.toString());return;
+                    }
                     if("app-update".equals(action)) {
                         JSONObject result=new JSONObject().put("id",input.optString("id"));
                         String url=input.optString("url");
@@ -369,6 +378,23 @@ public class MainActivity extends ComponentActivity {
                 final boolean success = saved;
                 runOnUiThread(() -> Toast.makeText(this, success ? "تم حفظ ملف Excel" : "تعذر حفظ ملف Excel. أعد المحاولة واختر مجلدًا آخر.", Toast.LENGTH_LONG).show());
             }, "FortiMune-Excel").start();
+            return;
+        }
+        if (requestCode == PICK_CONTACT) {
+            // IVAS: the system picker grants access to the chosen contact only; no contacts permission is held.
+            String json="{\"cancelled\":true}";
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                try (android.database.Cursor c = getContentResolver().query(data.getData(), new String[]{android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME}, null, null, null)) {
+                    if (c != null && c.moveToFirst()) {
+                        JSONObject o=new JSONObject();
+                        o.put("number", c.getString(0)==null?"":c.getString(0));
+                        o.put("name", c.getString(1)==null?"":c.getString(1));
+                        json=o.toString();
+                    }
+                } catch (Exception ignored) {}
+            }
+            final String payload=json;
+            if (webView != null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasContactPicked16 && window.ivasContactPicked16("+payload+")",null);
             return;
         }
         if (requestCode == FILE_CHOOSER && fileCallback != null) {
