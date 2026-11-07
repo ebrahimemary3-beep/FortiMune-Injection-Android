@@ -274,6 +274,8 @@ public class MainActivity extends ComponentActivity {
                 }
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.setType("image/*");intent.addCategory(Intent.CATEGORY_OPENABLE);
+                // IVAS: pick several photos at once when the page asks for multiple (extra batch photos).
+                if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 try { startActivityForResult(intent, FILE_CHOOSER); }
                 catch (ActivityNotFoundException e) { finishFileChooser(null); Toast.makeText(MainActivity.this,"لا يوجد تطبيق لاختيار الصور",Toast.LENGTH_LONG).show(); }
                 return true;
@@ -359,6 +361,12 @@ public class MainActivity extends ComponentActivity {
             Uri[] result = null;
             if (resultCode == RESULT_OK) {
                 if (capturePending && cameraOutput != null && cameraFile != null && cameraFile.length() > 0) result = new Uri[]{cameraOutput};
+                else if (!capturePending && data != null && data.getClipData() != null && data.getClipData().getItemCount() > 0) {
+                    android.content.ClipData clip = data.getClipData();
+                    int n = Math.min(clip.getItemCount(), 10);
+                    result = new Uri[n];
+                    for (int i = 0; i < n; i++) result[i] = clip.getItemAt(i).getUri();
+                }
                 else if (!capturePending && data != null && data.getData() != null) result = new Uri[]{data.getData()};
             }
             finishFileChooser(result);
