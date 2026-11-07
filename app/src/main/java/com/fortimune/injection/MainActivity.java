@@ -206,6 +206,11 @@ public class MainActivity extends ComponentActivity {
         }
         configureWebView();
         installNativeBridge();
+        UpdateReceiver.listener=(status,message) -> {
+            if(status==android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) updateEvent("{\"installing\":true}");
+            else if(status==android.content.pm.PackageInstaller.STATUS_SUCCESS) updateEvent("{\"installed\":true}");
+            else updateEvent("{\"error\":\"لم يكتمل التثبيت. حاول تاني.\"}");
+        };
         nativeHandler.post(routePush);
         webView.loadUrl(START_URL);
     }
@@ -451,7 +456,7 @@ public class MainActivity extends ComponentActivity {
                 long v=info==null?0:(android.os.Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode);
                 if(info==null || !getPackageName().equals(info.packageName) || v<expected) { out.delete(); throw new java.io.IOException("ملف التحديث غير صالح."); }
                 pendingApk=out;
-                runOnUiThread(() -> { boolean launched=launchInstall(); updateEvent(launched?"{\"installing\":true}":"{\"needsPermission\":true}"); });
+                runOnUiThread(() -> { boolean launched=launchInstall(); updateEvent(launched?"{\"installStarted\":true}":"{\"needsPermission\":true}"); });
             } catch(Exception e) {
                 out.delete();
                 String msg=e.getMessage()==null?"تعذر تنزيل التحديث.":e.getMessage().replace("\"","'");
@@ -459,6 +464,8 @@ public class MainActivity extends ComponentActivity {
             } finally { updateRunning=false; }
         }).start();
     }
+    // Install through PackageInstaller: on Android 12+ an app that installed its own previous update can update
+    // silently (USER_ACTION_NOT_REQUIRED); otherwise Android shows its confirmation screen once.
     private boolean launchInstall() {
         if(pendingApk==null || !pendingApk.exists()) return false;
         if(!getPackageManager().canRequestPackageInstalls()) {
@@ -466,17 +473,35 @@ public class MainActivity extends ComponentActivity {
             try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:"+getPackageName()))); } catch(Exception ignored) {}
             return false;
         }
-        Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",pendingApk);
-        Intent i=new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(uri,"application/vnd.android.package-archive");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
-        try { startActivity(i); return true; } catch(Exception e) { return false; }
+        final java.io.File apk=pendingApk;
+        new Thread(() -> {
+            try {
+                android.content.pm.PackageInstaller installer=getPackageManager().getPackageInstaller();
+                android.content.pm.PackageInstaller.SessionParams params=new android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                params.setAppPackageName(getPackageName());
+                if(android.os.Build.VERSION.SDK_INT>=31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                int sid=installer.createSession(params);
+                try(android.content.pm.PackageInstaller.Session session=installer.openSession(sid)) {
+                    try(java.io.InputStream in=new java.io.FileInputStream(apk);java.io.OutputStream out=session.openWrite("ivas-update",0,apk.length())) {
+                        byte[] buf=new byte[64*1024];int n;while((n=in.read(buf))>0) out.write(buf,0,n);
+                        session.fsync(out);
+                    }
+                    Intent cb=new Intent(UpdateReceiver.ACTION_STATUS).setPackage(getPackageName());
+                    int flags=android.app.PendingIntent.FLAG_UPDATE_CURRENT|(android.os.Build.VERSION.SDK_INT>=31?android.app.PendingIntent.FLAG_MUTABLE:0);
+                    android.app.PendingIntent pi=android.app.PendingIntent.getBroadcast(this,sid,cb,flags);
+                    session.commit(pi.getIntentSender());
+                }
+            } catch(Exception e) {
+                updateEvent("{\"error\":\"تعذر بدء التثبيت.\"}");
+            }
+        }).start();
+        return true;
     }
     @Override protected void onResume() {
         super.onResume();
         if(awaitingInstallPermission && getPackageManager().canRequestPackageInstalls()) {
             awaitingInstallPermission=false;
-            if(launchInstall()) updateEvent("{\"installing\":true}");
+            if(launchInstall()) updateEvent("{\"installStarted\":true}");
         }
     }
 
