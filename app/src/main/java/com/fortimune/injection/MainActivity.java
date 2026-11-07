@@ -162,6 +162,7 @@ public class MainActivity extends ComponentActivity {
                     result.put("boundUserId",getSharedPreferences("fortimune_push63",0).getString("owner",""));
                     result.put("excelExport",true);
                     result.put("imageExport",true);
+                    if(FortiMuneApplication.alertChannelReady) result.put("alertChannel",FortiMuneApplication.ALERT_CHANNEL);
                     reply.postMessage(result.toString());
                 } catch(Exception ignored) { /* No tokens or payloads in logs. */ }
             });
