@@ -74,6 +74,15 @@ public class MainActivity extends ComponentActivity {
                     JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if("app-update".equals(action)) {
+                        JSONObject result=new JSONObject().put("id",input.optString("id"));
+                        String url=input.optString("url");
+                        int expected=input.optInt("versionCode",0);
+                        if(!validUpdateUrl(url)||expected<=BuildConfig.VERSION_CODE) result.put("error","بيانات التحديث غير صالحة.");
+                        else if(updateRunning) result.put("started",true);
+                        else { result.put("started",true); startUpdateDownload(url,expected); }
+                        reply.postMessage(result.toString());return;
+                    }
                     if("app-version".equals(action)) {
                         JSONObject result=new JSONObject().put("id",input.optString("id"))
                             .put("versionName",BuildConfig.VERSION_NAME).put("versionCode",BuildConfig.VERSION_CODE);
@@ -396,6 +405,79 @@ public class MainActivity extends ComponentActivity {
         if (result == null && cameraFile != null) cameraFile.delete();
         if (callback != null) callback.onReceiveValue(result);
         cameraOutput = null; cameraFile = null; capturePending = false;
+    }
+
+    // IVAS in-app update: download the signed APK from the project's GitHub release and open Android's installer.
+    private volatile boolean updateRunning;
+    private java.io.File pendingApk;
+    private boolean awaitingInstallPermission;
+    private boolean validUpdateUrl(String url) {
+        try {
+            Uri u=Uri.parse(url);
+            return "https".equals(u.getScheme()) && "github.com".equals(u.getHost()) && u.getPath()!=null
+                && u.getPath().startsWith("/ebrahimemary3-beep/FortiMune-Injection-Android/releases/") && u.getPath().endsWith(".apk");
+        } catch(Exception e) { return false; }
+    }
+    private void updateEvent(String json) {
+        runOnUiThread(() -> { if(webView!=null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasUpdateEvent16 && window.ivasUpdateEvent16("+json+")",null); });
+    }
+    private void startUpdateDownload(String url,int expected) {
+        updateRunning=true;
+        new Thread(() -> {
+            java.io.File dir=new java.io.File(getCacheDir(),"updates");
+            java.io.File out=new java.io.File(dir,"IVAS-App.apk");
+            try {
+                if(!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("تعذر تجهيز مساحة التحديث.");
+                java.net.HttpURLConnection c=(java.net.HttpURLConnection)new java.net.URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);c.setConnectTimeout(15000);c.setReadTimeout(30000);
+                c.setRequestProperty("User-Agent","IVAS-Android/"+BuildConfig.VERSION_NAME);
+                int code=c.getResponseCode();
+                String host=c.getURL().getHost();
+                if(code!=200) throw new java.io.IOException("تعذر تنزيل التحديث ("+code+").");
+                if(!(host.equals("github.com")||host.endsWith(".githubusercontent.com"))) throw new java.io.IOException("مصدر التحديث غير معتمد.");
+                long total=c.getContentLengthLong();
+                if(total>80L*1024*1024) throw new java.io.IOException("حجم ملف التحديث غير متوقع.");
+                long done=0;int lastPct=-1;
+                try(java.io.InputStream in=c.getInputStream();java.io.OutputStream o=new java.io.FileOutputStream(out)) {
+                    byte[] buf=new byte[64*1024];int n;
+                    while((n=in.read(buf))>0) {
+                        o.write(buf,0,n);done+=n;
+                        if(done>80L*1024*1024) throw new java.io.IOException("حجم ملف التحديث غير متوقع.");
+                        int pct=total>0?(int)(done*100/total):-1;
+                        if(pct!=lastPct && (pct%5==0)) { lastPct=pct; updateEvent("{\"progress\":"+pct+"}"); }
+                    }
+                }
+                android.content.pm.PackageInfo info=getPackageManager().getPackageArchiveInfo(out.getAbsolutePath(),0);
+                long v=info==null?0:(android.os.Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode);
+                if(info==null || !getPackageName().equals(info.packageName) || v<expected) { out.delete(); throw new java.io.IOException("ملف التحديث غير صالح."); }
+                pendingApk=out;
+                runOnUiThread(() -> { boolean launched=launchInstall(); updateEvent(launched?"{\"installing\":true}":"{\"needsPermission\":true}"); });
+            } catch(Exception e) {
+                out.delete();
+                String msg=e.getMessage()==null?"تعذر تنزيل التحديث.":e.getMessage().replace("\"","'");
+                updateEvent("{\"error\":\""+msg+"\"}");
+            } finally { updateRunning=false; }
+        }).start();
+    }
+    private boolean launchInstall() {
+        if(pendingApk==null || !pendingApk.exists()) return false;
+        if(!getPackageManager().canRequestPackageInstalls()) {
+            awaitingInstallPermission=true;
+            try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:"+getPackageName()))); } catch(Exception ignored) {}
+            return false;
+        }
+        Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",pendingApk);
+        Intent i=new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(uri,"application/vnd.android.package-archive");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { startActivity(i); return true; } catch(Exception e) { return false; }
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if(awaitingInstallPermission && getPackageManager().canRequestPackageInstalls()) {
+            awaitingInstallPermission=false;
+            if(launchInstall()) updateEvent("{\"installing\":true}");
+        }
     }
 
     @Override public void onBackPressed() {
