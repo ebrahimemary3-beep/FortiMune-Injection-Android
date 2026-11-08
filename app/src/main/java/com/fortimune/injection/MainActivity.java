@@ -40,6 +40,13 @@ public class MainActivity extends ComponentActivity {
     private static final int SAVE_IMAGE = 1004;
     private static final int PICK_CONTACT = 1005;
     private static final int SPEECH = 1006;
+    private static final int MIC_PERMISSION = 1007;
+    // IVAS 1.9.0: in-app listening (no Google dialog). Restarts after pauses until the user taps خلصت.
+    private android.speech.SpeechRecognizer liveRec;
+    private boolean liveActive, liveDelivered;
+    private long liveStartedAt, liveLevelAt;
+    private final StringBuilder liveText = new StringBuilder();
+    private int liveMutedVolume = -1, liveSession;
     private final ImageTransfer imageTransfer = new ImageTransfer();
     private byte[] pendingImage;
     private final ExcelTransfer excelTransfer = new ExcelTransfer();
@@ -88,6 +95,16 @@ public class MainActivity extends ComponentActivity {
                             sp.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,1);
                             startActivityForResult(sp,SPEECH);result.put("started",true);
                         } catch(ActivityNotFoundException e) { result.put("error","خدمة تحويل الصوت لنص مش متاحة على الموبايل ده (ثبّت/فعّل تطبيق Google)."); }
+                        reply.postMessage(result.toString());return;
+                    }
+                    if("speech-live".equals(action)||"speech-stop".equals(action)||"speech-cancel".equals(action)) {
+                        JSONObject result=new JSONObject().put("id",input.optString("id")).put("started",true);
+                        if("speech-stop".equals(action)) runOnUiThread(() -> stopLive(true));
+                        else if("speech-cancel".equals(action)) runOnUiThread(() -> stopLive(false));
+                        else if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            result.put("permission",true);
+                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION);
+                        } else runOnUiThread(this::startLive);
                         reply.postMessage(result.toString());return;
                     }
                     if("pick-contact".equals(action)) {
@@ -350,6 +367,11 @@ public class MainActivity extends ComponentActivity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == MIC_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startLive();
+            else liveEvent("{\"error\":\"mic\"}");
+            return;
+        }
         if (requestCode == CAMERA_PERMISSION && pendingCameraPermission) {
             pendingCameraPermission = false;
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
@@ -547,6 +569,99 @@ public class MainActivity extends ComponentActivity {
         }).start();
         return true;
     }
+
+    // ---------- IVAS live speech ----------
+    private void liveEvent(String json) {
+        if (webView != null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasSpeechLive16 && window.ivasSpeechLive16("+json+")",null);
+    }
+    private static String jsonText(String key, String v) {
+        try { return new JSONObject().put(key, v==null?"":v).toString(); } catch (Exception e) { return "{}"; }
+    }
+    private void muteBeeps(boolean mute) {
+        try {
+            android.media.AudioManager am=(android.media.AudioManager)getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            if (mute && liveMutedVolume < 0) { liveMutedVolume = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC); am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,0,0); }
+            else if (!mute && liveMutedVolume >= 0) { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,liveMutedVolume,0); liveMutedVolume=-1; }
+        } catch (Exception ignored) {}
+    }
+    private void startLive() {
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { liveEvent("{\"error\":\"unavailable\"}"); return; }
+        if (liveRec != null) { try { liveRec.destroy(); } catch (Exception ignored) {} liveRec = null; }
+        liveSession++; liveText.setLength(0); liveActive = true; liveDelivered = false; liveStartedAt = System.currentTimeMillis();
+        liveListen();
+    }
+    private void liveListen() {
+        if (!liveActive) return;
+        if (liveRec == null) {
+            liveRec = android.speech.SpeechRecognizer.createSpeechRecognizer(this);
+            liveRec.setRecognitionListener(new android.speech.RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle b) { muteBeeps(true); liveEvent("{\"ready\":true}"); }
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float rms) {
+                    long t=System.currentTimeMillis(); if (t-liveLevelAt<150) return; liveLevelAt=t;
+                    liveEvent("{\"level\":"+Math.max(0,Math.min(10,Math.round(rms)))+"}");
+                }
+                @Override public void onBufferReceived(byte[] b) {}
+                @Override public void onEndOfSpeech() {}
+                @Override public void onError(int code) {
+                    boolean retry = code==android.speech.SpeechRecognizer.ERROR_NO_MATCH || code==android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT || code==android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY || code==android.speech.SpeechRecognizer.ERROR_CLIENT;
+                    if (liveActive && retry && System.currentTimeMillis()-liveStartedAt < 240000) {
+                        if (code==android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY || code==android.speech.SpeechRecognizer.ERROR_CLIENT) { try { liveRec.destroy(); } catch (Exception ignored) {} liveRec=null; }
+                        nativeHandler.postDelayed(MainActivity.this::liveListen, 250); return;
+                    }
+                    if (liveActive && code==android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) { liveActive=false; liveFinish(); liveEvent("{\"error\":\"mic\"}"); return; }
+                    if (liveActive && (code==android.speech.SpeechRecognizer.ERROR_NETWORK || code==android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT || code==android.speech.SpeechRecognizer.ERROR_SERVER) && liveText.length()==0) { liveActive=false; liveFinish(); liveEvent("{\"error\":\"network\"}"); return; }
+                    liveActive=false; liveFinish();
+                }
+                @Override public void onResults(Bundle b) {
+                    java.util.ArrayList<String> r=b==null?null:b.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (r != null && !r.isEmpty() && r.get(0) != null && !r.get(0).trim().isEmpty()) { if (liveText.length()>0) liveText.append(' '); liveText.append(r.get(0).trim()); }
+                    liveEvent(jsonText("text", liveText.toString()));
+                    if (liveActive && System.currentTimeMillis()-liveStartedAt < 240000) nativeHandler.postDelayed(MainActivity.this::liveListen, 120);
+                    else { liveActive=false; liveFinish(); }
+                }
+                @Override public void onPartialResults(Bundle b) {
+                    java.util.ArrayList<String> r=b==null?null:b.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (r == null || r.isEmpty() || r.get(0) == null) return;
+                    liveEvent(jsonText("partial", (liveText.length()>0?liveText+" ":"")+r.get(0)));
+                }
+                @Override public void onEvent(int t, Bundle b) {}
+            });
+        }
+        Intent i=new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE,"ar-EG");
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,"ar-EG");
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS,true);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,1);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_CALLING_PACKAGE,getPackageName());
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,4000L);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,3000L);
+        try { liveRec.startListening(i); } catch (Exception e) { liveActive=false; liveFinish(); }
+    }
+    private void stopLive(boolean deliver) {
+        if (!deliver) { liveActive=false; liveDelivered=true; releaseLive(); liveEvent("{\"cancelled\":true}"); return; }
+        if (!liveActive) { liveFinish(); return; }
+        liveActive=false;
+        try { if (liveRec != null) liveRec.stopListening(); } catch (Exception ignored) {}
+        final int session=liveSession;
+        nativeHandler.postDelayed(() -> { if (session==liveSession) liveFinish(); }, 1800); // in case the recognizer never answers
+    }
+    private void liveFinish() {
+        releaseLive();
+        if (liveDelivered) return; liveDelivered=true;
+        String json=liveText.length()>0?jsonText("text", liveText.toString()):"{\"cancelled\":true}";
+        if (webView != null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasSpeech16 && window.ivasSpeech16("+json+")",null);
+    }
+    private void releaseLive() {
+        if (liveRec != null) { try { liveRec.destroy(); } catch (Exception ignored) {} liveRec=null; }
+        muteBeeps(false);
+    }
+    @Override protected void onPause() {
+        if (liveActive) stopLive(true); else muteBeeps(false);
+        super.onPause();
+    }
     @Override protected void onResume() {
         super.onResume();
         if(awaitingInstallPermission && getPackageManager().canRequestPackageInstalls()) {
@@ -560,6 +675,7 @@ public class MainActivity extends ComponentActivity {
     }
 
     @Override protected void onDestroy() {
+        liveActive=false; releaseLive();
         nativeHandler.removeCallbacksAndMessages(null);
         finishFileChooser(null);
         excelTransfer.clear();pendingExcel = null;
