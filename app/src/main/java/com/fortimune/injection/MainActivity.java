@@ -39,6 +39,7 @@ public class MainActivity extends ComponentActivity {
     private static final int SAVE_EXCEL = 1003;
     private static final int SAVE_IMAGE = 1004;
     private static final int PICK_CONTACT = 1005;
+    private static final int SPEECH = 1006;
     private final ImageTransfer imageTransfer = new ImageTransfer();
     private byte[] pendingImage;
     private final ExcelTransfer excelTransfer = new ExcelTransfer();
@@ -75,6 +76,20 @@ public class MainActivity extends ComponentActivity {
                     JSONObject input=new JSONObject(raw);
                     String action=input.optString("action");
                     nativePageReady=true;
+                    if("speech".equals(action)) {
+                        // IVAS: the phone's speech-to-text (Egyptian Arabic); no microphone permission is held by the app.
+                        JSONObject result=new JSONObject().put("id",input.optString("id"));
+                        try {
+                            Intent sp=new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                            sp.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                            sp.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE,"ar-EG");
+                            sp.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,"ar-EG");
+                            sp.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT,"قول بيانات الدفعة");
+                            sp.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,1);
+                            startActivityForResult(sp,SPEECH);result.put("started",true);
+                        } catch(ActivityNotFoundException e) { result.put("error","خدمة تحويل الصوت لنص مش متاحة على الموبايل ده (ثبّت/فعّل تطبيق Google)."); }
+                        reply.postMessage(result.toString());return;
+                    }
                     if("pick-contact".equals(action)) {
                         JSONObject result=new JSONObject().put("id",input.optString("id"));
                         try {
@@ -378,6 +393,15 @@ public class MainActivity extends ComponentActivity {
                 final boolean success = saved;
                 runOnUiThread(() -> Toast.makeText(this, success ? "تم حفظ ملف Excel" : "تعذر حفظ ملف Excel. أعد المحاولة واختر مجلدًا آخر.", Toast.LENGTH_LONG).show());
             }, "FortiMune-Excel").start();
+            return;
+        }
+        if (requestCode == SPEECH) {
+            String json="{\"cancelled\":true}";
+            if (resultCode == RESULT_OK && data != null) {
+                java.util.ArrayList<String> r=data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS);
+                if (r != null && !r.isEmpty()) { try { json=new JSONObject().put("text", r.get(0)).toString(); } catch (Exception ignored) {} }
+            }
+            if (webView != null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasSpeech16 && window.ivasSpeech16("+json+")",null);
             return;
         }
         if (requestCode == PICK_CONTACT) {
