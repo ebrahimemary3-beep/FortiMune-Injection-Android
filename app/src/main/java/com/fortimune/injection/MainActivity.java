@@ -46,6 +46,8 @@ public class MainActivity extends ComponentActivity {
     private boolean liveActive, liveDelivered;
     private long liveStartedAt, liveLevelAt;
     private final StringBuilder liveText = new StringBuilder();
+    private final java.util.ArrayList<String> liveBias = new java.util.ArrayList<>();
+    private org.json.JSONArray liveSegs = new org.json.JSONArray();
     private int liveMutedVolume = -1, liveSession;
     private final ImageTransfer imageTransfer = new ImageTransfer();
     private byte[] pendingImage;
@@ -99,6 +101,7 @@ public class MainActivity extends ComponentActivity {
                     }
                     if("speech-live".equals(action)||"speech-stop".equals(action)||"speech-cancel".equals(action)) {
                         JSONObject result=new JSONObject().put("id",input.optString("id")).put("started",true);
+                        if("speech-live".equals(action)) { liveBias.clear(); org.json.JSONArray b=input.optJSONArray("bias"); if(b!=null) for(int k=0;k<b.length()&&k<150;k++){ String w=b.optString(k,"").trim(); if(!w.isEmpty()&&w.length()<=60) liveBias.add(w); } }
                         if("speech-stop".equals(action)) runOnUiThread(() -> stopLive(true));
                         else if("speech-cancel".equals(action)) runOnUiThread(() -> stopLive(false));
                         else if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -588,7 +591,7 @@ public class MainActivity extends ComponentActivity {
     private void startLive() {
         if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { liveEvent("{\"error\":\"unavailable\"}"); return; }
         if (liveRec != null) { try { liveRec.destroy(); } catch (Exception ignored) {} liveRec = null; }
-        liveSession++; liveText.setLength(0); liveActive = true; liveDelivered = false; liveStartedAt = System.currentTimeMillis();
+        liveSession++; liveText.setLength(0); liveSegs=new org.json.JSONArray(); liveActive = true; liveDelivered = false; liveStartedAt = System.currentTimeMillis();
         liveListen();
     }
     private void liveListen() {
@@ -616,8 +619,12 @@ public class MainActivity extends ComponentActivity {
                 }
                 @Override public void onResults(Bundle b) {
                     java.util.ArrayList<String> r=b==null?null:b.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (r != null && !r.isEmpty() && r.get(0) != null && !r.get(0).trim().isEmpty()) { if (liveText.length()>0) liveText.append(' '); liveText.append(r.get(0).trim()); }
-                    liveEvent(jsonText("text", liveText.toString()));
+                    if (r != null && !r.isEmpty() && r.get(0) != null && !r.get(0).trim().isEmpty()) {
+                        if (liveText.length()>0) liveText.append(' '); liveText.append(r.get(0).trim());
+                        org.json.JSONArray alts=new org.json.JSONArray(); for (int k=0;k<r.size()&&k<5;k++) if (r.get(k)!=null) alts.put(r.get(k));
+                        liveSegs.put(alts);
+                        try { liveEvent(new JSONObject().put("text", liveText.toString()).put("segment", alts).toString()); } catch (Exception e) { liveEvent(jsonText("text", liveText.toString())); }
+                    } else liveEvent(jsonText("text", liveText.toString()));
                     if (liveActive && System.currentTimeMillis()-liveStartedAt < 240000) nativeHandler.postDelayed(MainActivity.this::liveListen, 120);
                     else { liveActive=false; liveFinish(); }
                 }
@@ -634,8 +641,9 @@ public class MainActivity extends ComponentActivity {
         i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE,"ar-EG");
         i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,"ar-EG");
         i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS,true);
-        i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,1);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,5);
         i.putExtra(android.speech.RecognizerIntent.EXTRA_CALLING_PACKAGE,getPackageName());
+        if (android.os.Build.VERSION.SDK_INT >= 33 && !liveBias.isEmpty()) i.putStringArrayListExtra("android.speech.extra.BIASING_STRINGS", new java.util.ArrayList<>(liveBias));
         i.putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,4000L);
         i.putExtra(android.speech.RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,3000L);
         try { liveRec.startListening(i); } catch (Exception e) { liveActive=false; liveFinish(); }
@@ -651,7 +659,8 @@ public class MainActivity extends ComponentActivity {
     private void liveFinish() {
         releaseLive();
         if (liveDelivered) return; liveDelivered=true;
-        String json=liveText.length()>0?jsonText("text", liveText.toString()):"{\"cancelled\":true}";
+        String json="{\"cancelled\":true}";
+        if (liveText.length()>0) { try { json=new JSONObject().put("text", liveText.toString()).put("segments", liveSegs).toString(); } catch (Exception e) { json=jsonText("text", liveText.toString()); } }
         if (webView != null && isTrustedPage(webView.getUrl())) webView.evaluateJavascript("window.ivasSpeech16 && window.ivasSpeech16("+json+")",null);
     }
     private void releaseLive() {
