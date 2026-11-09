@@ -256,7 +256,12 @@ public class MainActivity extends ComponentActivity {
         UpdateReceiver.listener=(status,message) -> {
             if(status==android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) updateEvent("{\"installing\":true}");
             else if(status==android.content.pm.PackageInstaller.STATUS_SUCCESS) updateEvent("{\"installed\":true}");
-            else updateEvent("{\"error\":\"لم يكتمل التثبيت. حاول تاني.\"}");
+            else if(status==android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED && openClassicInstaller()) updateEvent("{\"installing\":true,\"classic\":true}");
+            else if(status!=android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE && status!=android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE && openClassicInstaller()) updateEvent("{\"installing\":true,\"classic\":true}");
+            else {
+                String why=status==android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE?"مساحة الموبايل مش كفاية للتحديث.":status==android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE?"التحديث مش متوافق مع الموبايل ده.":"لم يكتمل التثبيت. حاول تاني.";
+                try { updateEvent(new JSONObject().put("error",why).put("status",status).put("detail",message==null?"":message.length()>160?message.substring(0,160):message).toString()); } catch(Exception e) { updateEvent("{\"error\":\"لم يكتمل التثبيت. حاول تاني.\"}"); }
+            }
         };
         nativeHandler.post(routePush);
         webView.loadUrl(START_URL);
@@ -362,9 +367,11 @@ public class MainActivity extends ComponentActivity {
             request.setMimeType(mimeType);
             request.addRequestHeader("User-Agent", userAgent);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "IVAS-Injection-Report.xlsx");
+            boolean apk=downloadUri.getPath()!=null && downloadUri.getPath().endsWith(".apk");
+            if(apk) request.setMimeType("application/vnd.android.package-archive");
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, apk?"IVAS-App.apk":"IVAS-Injection-Report.xlsx");
             ((DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request);
-            Toast.makeText(this, "تم بدء تنزيل ملف Excel", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, apk?"بيتنزّل التحديث — افتحه من الإشعارات واضغط «تحديث»":"تم بدء تنزيل ملف Excel", Toast.LENGTH_SHORT).show();
         });
 
     }
@@ -511,8 +518,9 @@ public class MainActivity extends ComponentActivity {
     private boolean validUpdateUrl(String url) {
         try {
             Uri u=Uri.parse(url);
-            return "https".equals(u.getScheme()) && "github.com".equals(u.getHost()) && u.getPath()!=null
-                && u.getPath().startsWith("/ebrahimemary3-beep/FortiMune-Injection-Android/releases/") && u.getPath().endsWith(".apk");
+            if(!"https".equals(u.getScheme()) || u.getPath()==null || !u.getPath().endsWith(".apk")) return false;
+            if("github.com".equals(u.getHost())) return u.getPath().startsWith("/ebrahimemary3-beep/FortiMune-Injection-Android/releases/");
+            return ("ivas-86h.pages.dev".equals(u.getHost()) || "main.ivas-86h.pages.dev".equals(u.getHost())) && u.getPath().startsWith("/downloads/");
         } catch(Exception e) { return false; }
     }
     private void updateEvent(String json) {
@@ -531,7 +539,7 @@ public class MainActivity extends ComponentActivity {
                 int code=c.getResponseCode();
                 String host=c.getURL().getHost();
                 if(code!=200) throw new java.io.IOException("تعذر تنزيل التحديث ("+code+").");
-                if(!(host.equals("github.com")||host.endsWith(".githubusercontent.com"))) throw new java.io.IOException("مصدر التحديث غير معتمد.");
+                if(!(host.equals("github.com")||host.endsWith(".githubusercontent.com")||host.equals("ivas-86h.pages.dev")||host.equals("main.ivas-86h.pages.dev"))) throw new java.io.IOException("مصدر التحديث غير معتمد.");
                 long total=c.getContentLengthLong();
                 if(total>80L*1024*1024) throw new java.io.IOException("حجم ملف التحديث غير متوقع.");
                 long done=0;int lastPct=-1;
@@ -558,6 +566,16 @@ public class MainActivity extends ComponentActivity {
     }
     // Install through PackageInstaller: on Android 12+ an app that installed its own previous update can update
     // silently (USER_ACTION_NOT_REQUIRED); otherwise Android shows its confirmation screen once.
+    // Fallback for phones that block installer sessions (e.g. some Xiaomi/Oppo builds): Android's regular install screen.
+    private boolean openClassicInstaller() {
+        try {
+            if(pendingApk==null || !pendingApk.exists()) return false;
+            Uri uri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".imageprovider",pendingApk);
+            Intent i=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i); return true;
+        } catch(Exception e) { return false; }
+    }
     private boolean launchInstall() {
         if(pendingApk==null || !pendingApk.exists()) return false;
         if(!getPackageManager().canRequestPackageInstalls()) {
