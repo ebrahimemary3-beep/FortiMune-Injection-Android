@@ -113,6 +113,20 @@ public class MainActivity extends ComponentActivity {
                         } else runOnUiThread(this::startLive);
                         reply.postMessage(result.toString());return;
                     }
+                    if("cred-save".equals(action)||"cred-get".equals(action)||"cred-clear".equals(action)) {
+                        // IVAS 1.9.4 "remember me": email + password encrypted with an Android Keystore key that never leaves the phone.
+                        JSONObject result=new JSONObject().put("id",input.optString("id"));
+                        try {
+                            android.content.SharedPreferences prefs=getSharedPreferences("ivas_cred",MODE_PRIVATE);
+                            if("cred-save".equals(action)) {
+                                String u=input.optString("u",""), pw=input.optString("p","");
+                                if(u.isEmpty()||pw.isEmpty()||u.length()>160||pw.length()>200) throw new IllegalArgumentException();
+                                prefs.edit().putString("u",credEncrypt(u)).putString("p",credEncrypt(pw)).apply(); result.put("ok",true);
+                            } else if("cred-clear".equals(action)) { prefs.edit().clear().apply(); result.put("ok",true); }
+                            else { String u=prefs.getString("u",null), pw=prefs.getString("p",null); if(u!=null&&pw!=null) result.put("u",credDecrypt(u)).put("p",credDecrypt(pw)); }
+                        } catch(Exception e) { result.put("ok",false); }
+                        reply.postMessage(result.toString());return;
+                    }
                     if("pick-contact".equals(action)) {
                         JSONObject result=new JSONObject().put("id",input.optString("id"));
                         try {
@@ -606,6 +620,29 @@ public class MainActivity extends ComponentActivity {
             }
         }).start();
         return true;
+    }
+
+    // ---------- IVAS remembered login (Android Keystore, AES-GCM) ----------
+    private javax.crypto.SecretKey credKey() throws Exception {
+        java.security.KeyStore ks=java.security.KeyStore.getInstance("AndroidKeyStore"); ks.load(null);
+        if(!ks.containsAlias("ivas_cred")) {
+            javax.crypto.KeyGenerator kg=javax.crypto.KeyGenerator.getInstance(android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");
+            kg.init(new android.security.keystore.KeyGenParameterSpec.Builder("ivas_cred",android.security.keystore.KeyProperties.PURPOSE_ENCRYPT|android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE).setKeySize(256).build());
+            kg.generateKey();
+        }
+        return ((java.security.KeyStore.SecretKeyEntry)ks.getEntry("ivas_cred",null)).getSecretKey();
+    }
+    private String credEncrypt(String plain) throws Exception {
+        javax.crypto.Cipher c=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding"); c.init(javax.crypto.Cipher.ENCRYPT_MODE,credKey());
+        byte[] ct=c.doFinal(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return android.util.Base64.encodeToString(c.getIV(),android.util.Base64.NO_WRAP)+":"+android.util.Base64.encodeToString(ct,android.util.Base64.NO_WRAP);
+    }
+    private String credDecrypt(String stored) throws Exception {
+        String[] parts=stored.split(":",2); if(parts.length!=2) throw new IllegalArgumentException();
+        javax.crypto.Cipher c=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        c.init(javax.crypto.Cipher.DECRYPT_MODE,credKey(),new javax.crypto.spec.GCMParameterSpec(128,android.util.Base64.decode(parts[0],android.util.Base64.NO_WRAP)));
+        return new String(c.doFinal(android.util.Base64.decode(parts[1],android.util.Base64.NO_WRAP)),java.nio.charset.StandardCharsets.UTF_8);
     }
 
     // ---------- IVAS live speech ----------
