@@ -41,6 +41,9 @@ public class MainActivity extends ComponentActivity {
     private static final int PICK_CONTACT = 1005;
     private static final int SPEECH = 1006;
     private static final int MIC_PERMISSION = 1007;
+    private static final int LOCATION_PERMISSION = 1008;
+    private String pendingGeoOrigin;
+    private android.webkit.GeolocationPermissions.Callback pendingGeoCallback;
     // IVAS 1.9.0: in-app listening (no Google dialog). Restarts after pauses until the user taps خلصت.
     private android.speech.SpeechRecognizer liveRec;
     private boolean liveActive, liveDelivered;
@@ -262,6 +265,7 @@ public class MainActivity extends ComponentActivity {
     private void configureWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
+        s.setGeolocationEnabled(true);
         // Respect the phone's text size, but cap it so IVAS screens stay readable and uncluttered.
         s.setTextZoom((int) Math.min(110, Math.max(85, getResources().getConfiguration().fontScale * 100)));
         s.setDomStorageEnabled(true);
@@ -318,6 +322,14 @@ public class MainActivity extends ComponentActivity {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            // IVAS 1.9.2: location of "وصلت المعمل" (asked only when the engineer presses it, only for the IVAS site).
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
+                if (!"https://ivas-86h.pages.dev/".equals(origin) && !"https://ivas-86h.pages.dev".equals(origin)) { callback.invoke(origin,false,false); return; }
+                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) { callback.invoke(origin,true,false); return; }
+                pendingGeoOrigin=origin; pendingGeoCallback=callback;
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION);
+            }
             @Override public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (!isTrustedPage(webView.getUrl())) { callback.onReceiveValue(null); return true; }
                 finishFileChooser(null);
@@ -370,6 +382,11 @@ public class MainActivity extends ComponentActivity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCATION_PERMISSION) {
+            boolean ok=false; for (int g : grantResults) if (g == PackageManager.PERMISSION_GRANTED) ok=true;
+            if (pendingGeoCallback != null) { pendingGeoCallback.invoke(pendingGeoOrigin, ok, false); pendingGeoCallback=null; pendingGeoOrigin=null; }
+            return;
+        }
         if (requestCode == MIC_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startLive();
             else liveEvent("{\"error\":\"mic\"}");
