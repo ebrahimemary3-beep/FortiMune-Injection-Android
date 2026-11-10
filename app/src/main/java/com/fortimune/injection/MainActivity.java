@@ -335,6 +335,11 @@ public class MainActivity extends ComponentActivity {
                 if (isTrustedPage(u.toString())) {
                     return false;
                 }
+                // IVAS 1.9.5: WhatsApp links (message / group) open in regular WhatsApp, not WhatsApp Business.
+                if (host != null && (host.equals("wa.me") || host.equals("api.whatsapp.com") || host.equals("chat.whatsapp.com") || host.equals("whatsapp.com") || host.equals("www.whatsapp.com"))) {
+                    Intent wa = new Intent(Intent.ACTION_VIEW, u).setPackage("com.whatsapp");
+                    try { startActivity(wa); return true; } catch (ActivityNotFoundException noRegular) { /* fall back below */ }
+                }
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (ActivityNotFoundException ignored) {}
                 return true;
             }
