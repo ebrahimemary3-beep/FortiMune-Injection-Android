@@ -10,7 +10,7 @@ final class ImageTransfer {
     void begin(String name, int size, String type) {
         if(output != null) throw new IllegalStateException("انتظر تجهيز الصورة الحالية أو ألغها.");
         String ext = "image/png".equals(type) ? "png" : "image/jpeg".equals(type) ? "jpg" : "image/webp".equals(type) ? "webp" : null;
-        if(ext == null || name == null || !name.matches("[A-Za-z0-9_-]{1,120}\\." + ext) || size < 12 || size > MAX_BYTES)
+        if(ext == null || name == null || !name.matches("[\\p{L}\\p{M}\\p{N}_()-][\\p{L}\\p{M}\\p{N} _()-]{0,119}\\." + ext) || size < 12 || size > MAX_BYTES)
             throw new IllegalArgumentException("حجم أو اسم أو نوع الصورة غير صالح.");
         expected=size; filename=name; mime=type; output=new ByteArrayOutputStream(Math.min(size,131072));
     }

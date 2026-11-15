@@ -159,6 +159,11 @@ public class MainActivity extends ComponentActivity {
                                 imageTransfer.append(input.optInt("offset",-1),input.optString("data"));
                             } else if("image-save".equals(action)) {
                                 if(pendingImage!=null) throw new IllegalStateException("انتظر حفظ الصورة الحالية.");
+                                if(android.os.Build.VERSION.SDK_INT>=29){
+                                    saveToMediaStore(imageTransfer.bytes(),imageTransfer.filename(),imageTransfer.mime(),true);
+                                    imageTransfer.clear();result.put("ok",true).put("auto",true);
+                                    reply.postMessage(result.toString());return;
+                                }
                                 pendingImage=imageTransfer.bytes();
                                 Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
                                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -196,6 +201,11 @@ public class MainActivity extends ComponentActivity {
                                 excelTransfer.append(input.optInt("offset", -1), input.optString("data"));
                             } else if("excel-save".equals(action)) {
                                 if(pendingExcel != null) throw new IllegalStateException("انتظر حفظ الملف الحالي.");
+                                if(android.os.Build.VERSION.SDK_INT>=29){
+                                    saveToMediaStore(excelTransfer.bytes(),excelTransfer.filename(),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",false);
+                                    excelTransfer.clear();result.put("ok",true).put("auto",true);
+                                    reply.postMessage(result.toString());return;
+                                }
                                 pendingExcel = excelTransfer.bytes();
                                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -232,6 +242,8 @@ public class MainActivity extends ComponentActivity {
                     result.put("boundUserId",getSharedPreferences("fortimune_push63",0).getString("owner",""));
                     result.put("excelExport",true);
                     result.put("imageExport",true);
+                    result.put("autoSave",android.os.Build.VERSION.SDK_INT>=29);
+                    result.put("unicodeNames",true);
                     if(FortiMuneApplication.alertChannelReady) result.put("alertChannel",FortiMuneApplication.ALERT_CHANNEL);
                     reply.postMessage(result.toString());
                 } catch(Exception ignored) { /* No tokens or payloads in logs. */ }
@@ -427,6 +439,32 @@ public class MainActivity extends ComponentActivity {
                 Toast.makeText(this,"لتصوير التقرير، فعّل إذن الكاميرا من إعدادات التطبيق، أو اختر صورة من المعرض.",Toast.LENGTH_LONG).show();
             }
         }
+    }
+
+    /** API 29+: write straight into the shared gallery (Pictures/IVAS) or Downloads/IVAS without a picker or storage permission. */
+    private void saveToMediaStore(final byte[] bytes,final String filename,final String mime,final boolean image){
+        new Thread(() -> {
+            boolean saved=false;Uri item=null;
+            android.content.ContentResolver resolver=getContentResolver();
+            try{
+                android.content.ContentValues values=new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME,filename);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE,mime);
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,(image?android.os.Environment.DIRECTORY_PICTURES:android.os.Environment.DIRECTORY_DOWNLOADS)+"/IVAS");
+                values.put(android.provider.MediaStore.MediaColumns.IS_PENDING,1);
+                Uri collection=image?android.provider.MediaStore.Images.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        :android.provider.MediaStore.Downloads.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                item=resolver.insert(collection,values);
+                if(item==null) throw new java.io.IOException();
+                try(java.io.OutputStream stream=resolver.openOutputStream(item,"w")){
+                    if(stream==null) throw new java.io.IOException();stream.write(bytes);stream.flush();
+                }
+                values.clear();values.put(android.provider.MediaStore.MediaColumns.IS_PENDING,0);
+                resolver.update(item,values,null,null);saved=true;
+            }catch(Exception ignored){ if(item!=null){ try{resolver.delete(item,null,null);}catch(Exception e2){} } }
+            final boolean success=saved;
+            runOnUiThread(() -> Toast.makeText(this,success?(image?"تم حفظ الصورة في المعرض (IVAS) ✓":"تم حفظ ملف Excel في التنزيلات (Download/IVAS) ✓"):(image?"تعذر حفظ الصورة.":"تعذر حفظ ملف Excel."),Toast.LENGTH_LONG).show());
+        },image?"FortiMune-Image":"FortiMune-Excel").start();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {

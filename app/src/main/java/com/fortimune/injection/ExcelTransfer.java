@@ -11,7 +11,7 @@ final class ExcelTransfer {
     private String filename;
     void begin(String name, int size) {
         if (output != null) throw new IllegalStateException("انتظر حفظ الملف الحالي أو ألغِه.");
-        if (!name.matches("[A-Za-z0-9_-]{1,120}\\.xlsx") || size < 4 || size > MAX_BYTES)
+        if (!name.matches("[\\p{L}\\p{M}\\p{N}_()-][\\p{L}\\p{M}\\p{N} _()-]{0,119}\\.xlsx") || size < 4 || size > MAX_BYTES)
             throw new IllegalArgumentException("حجم أو اسم ملف Excel غير صالح.");
         expected = size; filename = name; output = new ByteArrayOutputStream(Math.min(size, 131072));
     }
